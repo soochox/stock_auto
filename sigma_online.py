@@ -6,8 +6,8 @@ from io import StringIO
 from datetime import datetime
 
 # GitHub Secrets에서 환경변수로 불러옴
-TOKEN = os.environ.get('8887842511:AAE2j8rXqcfp5CGluz5OgmKH1C9W_LX8uUg')
-CHAT_ID = os.environ.get('1956916092')
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
+CHAT_ID = os.environ.get('CHAT_ID')
 
 def run_job():
     # 1. 데이터 수집
