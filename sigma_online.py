@@ -25,7 +25,7 @@ def run_job():
     
     # 2. 전처리
     all_data['Ticker'] = all_data['Ticker'].str.upper().str.strip()
-    tickers = ['TSLA', 'QQQ', 'AAPL', 'NVDA', 'MSFT'] # 필요시 수정
+    tickers = ['QQQ', 'SOXX', 'TSLA', 'PLTR', 'MSFT'] # 필요시 수정
     result = all_data[all_data['Ticker'].isin(tickers)]
     
     # 3. 텔레그램 전송 (파일도 함께 보내기)
@@ -33,7 +33,9 @@ def run_job():
     result.to_csv(file_name, index=False, encoding='utf-8-sig')
     
     # 텍스트 메시지 전송
-    msg = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 예상 변동폭*\n\n" + result.to_string(index=False)
+    # 데이터만 따로 변수에 담고, 앞뒤로 백틱 3개(```)를 붙입니다.
+    formatted_table = result.to_string(index=False)
+    msg = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 예상 변동폭*\n\n" + "```\n" + formatted_table + "\n```"
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
     
     # CSV 파일 전송
