@@ -10,7 +10,7 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('CHAT_ID')
 
 def run_job():
-    # 1. 데이터 수집 (자동 링크 변환 방지 처리)
+    # 1. 데이터 수집
     site_domain = "usstocksigma.com"
     base_url = "https://" + site_domain + "/category/expected-move/"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -23,75 +23,50 @@ def run_job():
     tables = pd.read_html(StringIO(post_response.text))
     all_data = pd.concat(tables, ignore_index=True)
     
-    # 2. 전처리 (회원님의 원본 구조 유지)
+    # 전처리
+    all_data.columns = [str(c).strip() for c in all_data.columns]
     all_data['Ticker'] = all_data['Ticker'].astype(str).str.upper().str.strip()
-    tickers = ['QQQ', 'SOXX', 'TSLA', 'PLTR', 'MSFT'] # 필요시 수정
+    tickers = ['QQQ', 'SOXX', 'TSLA', 'PLTR', 'MSFT'] 
     filtered_df = all_data[all_data['Ticker'].isin(tickers)].copy()
     
     if not filtered_df.empty:
-        cols = filtered_df.columns
+        # 데이터 추출 (강제 매칭)
+        price_col = next((c for c in filtered_df.columns if any(x in str(c).lower() for x in ['price', 'current', '주가', '현재가'])), filtered_df.columns[1])
+        em_col = next((c for c in filtered_df.columns if any(x in str(c).lower() for x in ['move', '변동폭']) and '%' not in str(c).lower()), filtered_df.columns[2])
         
-        # [수정] 이름으로 못 찾으면 무조건 2번째, 3번째 컬럼을 강제로 가져옵니다.
-        price_col = next((c for c in cols if any(x in str(c).lower() for x in ['price', 'current', 'underlying', '주가', '현재가'])), None)
-        if not price_col and len(cols) > 1:
-            price_col = cols[1] # 두 번째 컬럼 강제 지정
-            
-        em_col = next((c for c in cols if any(x in str(c).lower() for x in ['expected move', 'move', '변동폭']) and '%' not in str(c).lower() and '2' not in str(c).lower() and '시그마' not in str(c).lower()), None)
-        if not em_col and len(cols) > 2:
-            em_col = cols[2] # 세 번째 컬럼 강제 지정
-        
-        # 숫자만 안전하게 추출하는 함수 (회원님 원본)
         def clean_float(val):
             if pd.isna(val): return 0.0
             cleaned = "".join(c for c in str(val) if c.isdigit() or c == '.' or c == '-')
             try: return float(cleaned)
             except: return 0.0
 
-        if price_col and em_col:
-            prices = filtered_df[price_col].apply(clean_float)
-            em_1s = filtered_df[em_col].apply(clean_float)
-            
-            # 1시그마 및 2시그마 범위 계산
-            filtered_df['Range_1S'] = [f"${(p - em):.2f} ~ ${(p + em):.2f}" if p > 0 and em > 0 else "N/A" for p, em in zip(prices, em_1s)]
-            filtered_df['Range_2S'] = [f"${(p - em*2):.2f} ~ ${(p + em*2):.2f}" if p > 0 and em > 0 else "N/A" for p, em in zip(prices, em_1s)]
-            
-            # --- [텔레그램 모바일용 표 1: 1시그마] ---
-            table_lines_1s = [f"{'Ticker':<7} {'Price':<8} {'1-Sigma':<16}"]
-            table_lines_1s.append("-" * 33)
-            for _, row in filtered_df.iterrows():
-                ticker = str(row.get('Ticker', ''))[:6]
-                price = str(row.get(price_col, ''))[:7]
-                r1 = str(row['Range_1S']).replace('$', '').replace(' ', '')
-                table_lines_1s.append(f"{ticker:<7} {price:<8} {r1:<16}")
-            
-            formatted_table_1s = "\n".join(table_lines_1s)
-            
-            # --- [텔레그램 모바일용 표 2: 2시그마] ---
-            table_lines_2s = [f"{'Ticker':<7} {'Price':<8} {'2-Sigma':<16}"]
-            table_lines_2s.append("-" * 33)
-            for _, row in filtered_df.iterrows():
-                ticker = str(row.get('Ticker', ''))[:6]
-                price = str(row.get(price_col, ''))[:7]
-                r2 = str(row['Range_2S']).replace('$', '').replace(' ', '')
-                table_lines_2s.append(f"{ticker:<7} {price:<8} {r2:<16}")
-            
-            formatted_table_2s = "\n".join(table_lines_2s)
-            
-        else:
-            # 여기로 빠질 일은 이제 거의 없습니다.
-            formatted_table_1s = filtered_df.to_string(index=False)
-            formatted_table_2s = "데이터 추출 오류: 강제 매칭 실패"
-
-        # 3. 텔레그램 전송 (메시지 2개 분할)
+        prices = filtered_df[price_col].apply(clean_float)
+        em_1s = filtered_df[em_col].apply(clean_float)
+        
+        # 2시그마 범위 계산
+        filtered_df['Range_2S'] = [f"${(p - em*2):.2f} ~ ${(p + em*2):.2f}" if p > 0 and em > 0 else "N/A" for p, em in zip(prices, em_1s)]
+        
+        # 텔레그램 API 설정
         api_domain = "api.telegram.org"
         telegram_url = "https://" + api_domain + "/bot" + str(TOKEN) + "/sendMessage"
 
-        # [첫 번째 메시지] 1시그마 전송
-        msg_1s = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 예상 변동폭 (1시그마)*\n\n" + "```\n" + formatted_table_1s + "\n```"
+        # --------------------------------------------------
+        # 메시지 1: 1시그마 원본 (filtered_df를 그대로 전송)
+        # --------------------------------------------------
+        msg_1s = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 예상 변동폭 (1시그마 - 원본)*\n\n" + "```\n" + filtered_df.to_string(index=False) + "\n```"
         requests.post(telegram_url, json={"chat_id": CHAT_ID, "text": msg_1s, "parse_mode": "Markdown"})
 
-        # [두 번째 메시지] 2시그마 전송
-        msg_2s = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 예상 변동폭 (2시그마)*\n\n" + "```\n" + formatted_table_2s + "\n```"
+        # --------------------------------------------------
+        # 메시지 2: 2시그마 계산값만 전송
+        # --------------------------------------------------
+        table_lines_2s = [f"{'Ticker':<7} {'2-Sigma Range':<20}"]
+        table_lines_2s.append("-" * 28)
+        for _, row in filtered_df.iterrows():
+            ticker = str(row['Ticker'])[:6]
+            r2 = str(row['Range_2S']).replace('$', '').replace(' ', '')
+            table_lines_2s.append(f"{ticker:<7} {r2:<20}")
+            
+        msg_2s = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 2시그마 계산값*\n\n" + "```\n" + "\n".join(table_lines_2s) + "\n```"
         requests.post(telegram_url, json={"chat_id": CHAT_ID, "text": msg_2s, "parse_mode": "Markdown"})
 
 if __name__ == "__main__":
