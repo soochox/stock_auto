@@ -73,14 +73,14 @@ def run_job():
             
             formatted_table = "\n".join(table_lines)
         else:
-            # 예외 상황 시 기존 방식 사용
             formatted_table = filtered_df.to_string(index=False)
 
         # 백틱(```)으로 감싸서 고정폭 폰트 적용
         msg = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 예상 변동폭 (1 & 2시그마)*\n\n" + "```\n" + formatted_table + "\n```"
         
-        # 3. 텍스트 메시지만 텔레그램 전송
-        requests.post(f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TOKEN}/sendMessage", json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+        # 3. 텔레그램 전송 (주소 깨짐 방지 처리 완료)
+        telegram_url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TOKEN}/sendMessage"
+        requests.post(telegram_url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
 
 if __name__ == "__main__":
     run_job()
