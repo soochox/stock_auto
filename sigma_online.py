@@ -23,21 +23,24 @@ def run_job():
     tables = pd.read_html(StringIO(post_response.text))
     all_data = pd.concat(tables, ignore_index=True)
     
-    # 컬럼명 안전하게 처리 (한글/영문 호환)
-    all_data.columns = [str(c).strip() for c in all_data.columns]
-    ticker_col = next((c for c in all_data.columns if any(x in c.lower() for x in ['ticker', '티커', '종목'])), all_data.columns[0])
-    
-    # 2. 전처리
-    all_data[ticker_col] = all_data[ticker_col].astype(str).str.upper().str.strip()
+    # 2. 전처리 (회원님의 원본 구조 유지)
+    all_data['Ticker'] = all_data['Ticker'].astype(str).str.upper().str.strip()
     tickers = ['QQQ', 'SOXX', 'TSLA', 'PLTR', 'MSFT'] # 필요시 수정
-    filtered_df = all_data[all_data[ticker_col].isin(tickers)].copy()
+    filtered_df = all_data[all_data['Ticker'].isin(tickers)].copy()
     
     if not filtered_df.empty:
         cols = filtered_df.columns
-        price_col = next((c for c in cols if any(x in c.lower() for x in ['price', 'current', 'underlying', '주가', '현재가'])), None)
-        em_col = next((c for c in cols if any(x in c.lower() for x in ['expected move', '변동폭']) and '%' not in c.lower() and '2' not in c.lower() and '시그마' not in c.lower()), None)
         
-        # 🌟 회원님의 원본 로직 (숫자 꼬임 방지 100% 복구) 🌟
+        # [수정] 이름으로 못 찾으면 무조건 2번째, 3번째 컬럼을 강제로 가져옵니다.
+        price_col = next((c for c in cols if any(x in str(c).lower() for x in ['price', 'current', 'underlying', '주가', '현재가'])), None)
+        if not price_col and len(cols) > 1:
+            price_col = cols[1] # 두 번째 컬럼 강제 지정
+            
+        em_col = next((c for c in cols if any(x in str(c).lower() for x in ['expected move', 'move', '변동폭']) and '%' not in str(c).lower() and '2' not in str(c).lower() and '시그마' not in str(c).lower()), None)
+        if not em_col and len(cols) > 2:
+            em_col = cols[2] # 세 번째 컬럼 강제 지정
+        
+        # 숫자만 안전하게 추출하는 함수 (회원님 원본)
         def clean_float(val):
             if pd.isna(val): return 0.0
             cleaned = "".join(c for c in str(val) if c.isdigit() or c == '.' or c == '-')
@@ -56,7 +59,7 @@ def run_job():
             table_lines_1s = [f"{'Ticker':<7} {'Price':<8} {'1-Sigma':<16}"]
             table_lines_1s.append("-" * 33)
             for _, row in filtered_df.iterrows():
-                ticker = str(row.get(ticker_col, ''))[:6]
+                ticker = str(row.get('Ticker', ''))[:6]
                 price = str(row.get(price_col, ''))[:7]
                 r1 = str(row['Range_1S']).replace('$', '').replace(' ', '')
                 table_lines_1s.append(f"{ticker:<7} {price:<8} {r1:<16}")
@@ -67,7 +70,7 @@ def run_job():
             table_lines_2s = [f"{'Ticker':<7} {'Price':<8} {'2-Sigma':<16}"]
             table_lines_2s.append("-" * 33)
             for _, row in filtered_df.iterrows():
-                ticker = str(row.get(ticker_col, ''))[:6]
+                ticker = str(row.get('Ticker', ''))[:6]
                 price = str(row.get(price_col, ''))[:7]
                 r2 = str(row['Range_2S']).replace('$', '').replace(' ', '')
                 table_lines_2s.append(f"{ticker:<7} {price:<8} {r2:<16}")
@@ -75,9 +78,9 @@ def run_job():
             formatted_table_2s = "\n".join(table_lines_2s)
             
         else:
-            # 예외 상황 시 원본 출력
+            # 여기로 빠질 일은 이제 거의 없습니다.
             formatted_table_1s = filtered_df.to_string(index=False)
-            formatted_table_2s = "데이터 추출 오류"
+            formatted_table_2s = "데이터 추출 오류: 강제 매칭 실패"
 
         # 3. 텔레그램 전송 (메시지 2개 분할)
         api_domain = "api.telegram.org"
