@@ -10,8 +10,9 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('CHAT_ID')
 
 def run_job():
-    # 1. 데이터 수집
-    base_url = "https://usstocksigma.com/category/expected-move/"
+    # 1. 데이터 수집 (자동 링크 변환 방지 처리)
+    site_domain = "usstocksigma.com"
+    base_url = "https://" + site_domain + "/category/expected-move/"
     headers = {'User-Agent': 'Mozilla/5.0'}
     
     response = requests.get(base_url, headers=headers)
@@ -78,8 +79,9 @@ def run_job():
         # 백틱(```)으로 감싸서 고정폭 폰트 적용
         msg = f"📊 *{datetime.now().strftime('%Y-%m-%d')} 주식 예상 변동폭 (1 & 2시그마)*\n\n" + "```\n" + formatted_table + "\n```"
         
-        # 3. 텔레그램 전송 (주소 깨짐 방지 처리 완료)
-        telegram_url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TOKEN}/sendMessage"
+        # 3. 텔레그램 전송 (복사/붙여넣기 시 자동 링크 변환 오작동을 막기 위해 쪼개서 결합)
+        api_domain = "api.telegram.org"
+        telegram_url = "https://" + api_domain + "/bot" + str(TOKEN) + "/sendMessage"
         requests.post(telegram_url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
 
 if __name__ == "__main__":
